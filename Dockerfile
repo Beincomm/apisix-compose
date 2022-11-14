@@ -92,7 +92,7 @@ RUN set -x \
 
 WORKDIR /usr/local/apisix
 
-COPY ./plugins/cognito-auth.lua /usr/local/apisix/plugins/
+COPY ./plugins/cognito-auth.lua /usr/local/apisix/apisix/plugins/
 
 ENV PATH=$PATH:/usr/local/openresty/luajit/bin:/usr/local/openresty/nginx/sbin:/usr/local/openresty/bin
 
