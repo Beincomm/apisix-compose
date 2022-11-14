@@ -1,6 +1,7 @@
 local ngx = ngx
 local type = type
 local sub_str = string.sub
+local req_match =  ngx.re.match
 local http = require "resty.http"
 local plugin_name = "cognito-auth"
 local ngx_encode_base64 = ngx.encode_base64
@@ -55,7 +56,7 @@ local consumer_schema = {
 
 local _M = {
     version = 0.1,
-    priority = 9000,
+    priority = 2900,
     type = 'auth',
     name = plugin_name,
     schema = schema,
@@ -65,21 +66,6 @@ local _M = {
 local wrap = ('.'):rep(64)
 
 local envelope = "-----BEGIN %s-----\n%s\n-----END %s-----\n"
-
-function _M.check_schema(conf, schema_type)
-    local ok, err
-    if schema_type == core.schema.TYPE_CONSUMER then
-        ok, err = core.schema.check(consumer_schema, conf)
-    else
-        return core.schema.check(schema, conf)
-    end
-
-    if not ok then
-        return false, err
-    end
-
-    return true
-end
 
 local function auth_cognito_cache_get(shared_type, key)
     local dict = ngx.shared[shared_type]
@@ -329,7 +315,7 @@ local function get_pem_from_jwk(conf, kid)
     return pem
 end
 
-local function fetch_access_token(conf, ctx)
+local function find_access_token(conf, ctx)
     local token = core.request.header(ctx, conf.header)
     if token then
         local prefix = sub_str(token, 1, 7)
@@ -355,26 +341,38 @@ end
 local function get_unauthorized_response(msg)
     return 401, { code = "api.unauthorized", meta = { message = msg, stack = null } }
 end
-
+--
 local function will_check_auth(conf, ctx)
+    local req_uri = ctx.var.request_uri
+    local req_method = ctx.var.request_method
+
+    if ctx.var.request_method == 'OPTIONS' then
+        return false
+    end
+
+    local will_check = true
+
     if not conf.white_list then
-        return true
+        return will_check
     end
 
     for _, v in pairs(conf.white_list) do
-        if ctx.var.request_method == v.method and string.match(ctx.var.request_uri, v.path) ~= nil then
-            return false
+        local matched = req_match(req_uri, v.path)
+        if req_method == v.method and matched ~= nil then
+            will_check = false
         end
     end
 
-    return true
+    return will_check
 end
 
 local function auth(conf, ctx)
-    local access_token, error = fetch_access_token(conf, ctx)
+    local access_token, error = find_access_token(conf, ctx)
+
+    local unauthorized_msg = "You must be logged in to perform this action"
 
     if not access_token or error then
-        return get_unauthorized_response("You must be logged in to perform this action")
+        return get_unauthorized_response(unauthorized_msg)
     end
 
     local decoded_payload = jwt:load_jwt(access_token)
@@ -386,24 +384,41 @@ local function auth(conf, ctx)
     local auth_secret, ex = get_pem_from_jwk(conf, decoded_payload.header.kid)
 
     if ex then
-        return get_unauthorized_response("You must be logged in to perform this action")
+        return get_unauthorized_response(unauthorized_msg)
     end
 
     if not auth_secret then
-        return get_unauthorized_response("You must be logged in to perform this action")
+        return get_unauthorized_response(unauthorized_msg)
     end
 
     local res = jwt:verify_jwt_obj(auth_secret, decoded_payload)
 
     if not res.verified then
-        return get_unauthorized_response("You must be logged in to perform this action")
+        return get_unauthorized_response(unauthorized_msg)
     end
 
     core.request.set_header(ctx, "user", core.json.encode(res.payload))
 end
 
+function _M.check_schema(conf, schema_type)
+    local ok, err
+    if schema_type == core.schema.TYPE_CONSUMER then
+        ok, err = core.schema.check(consumer_schema, conf)
+    else
+        return core.schema.check(schema, conf)
+    end
+
+    if not ok then
+        return false, err
+    end
+
+    return true
+end
+
 function _M.rewrite(conf, ctx)
-    if will_check_auth(conf, ctx) then
+    local check_auth = will_check_auth(conf, ctx)
+
+    if check_auth then
         return auth(conf, ctx)
     end
 end
