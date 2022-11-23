@@ -366,7 +366,7 @@ local function will_check_auth(conf, ctx)
     return will_check
 end
 
-local function cleanUnsafeHeader(ctx)
+local function clean_unsafe_header(ctx)
     -- clear user in header request
     core.request.set_header(ctx, "user", "")
 end
@@ -422,7 +422,7 @@ function _M.check_schema(conf, schema_type)
 end
 
 function _M.rewrite(conf, ctx)
-    cleanUnsafeHeader(ctx)
+    clean_unsafe_header(ctx)
 
     local check_auth = will_check_auth(conf, ctx)
 
