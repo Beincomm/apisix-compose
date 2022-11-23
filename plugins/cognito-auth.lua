@@ -367,6 +367,9 @@ local function will_check_auth(conf, ctx)
 end
 
 local function auth(conf, ctx)
+    -- clear user in header request
+    core.request.set_header(ctx, "user", "")
+
     local access_token, error = find_access_token(conf, ctx)
 
     local unauthorized_msg = "You must be logged in to perform this action"
